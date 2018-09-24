@@ -12,15 +12,14 @@ import (
 )
 
 //TODO support array filedName
-//TODO detect field type change
 func (dam *BasicDAM) SyncDB() error {
 	var err error
-	err = addTable(dam.TableName(), dam.DB, dam.Instance)
+	err = addTable(dam.TableName, dam.DB, dam.Instance)
 	if err != nil {
 		log.Error("Error in Creating Database Table: ", err)
 		return err
 	}
-	err = syncSchema(dam.TableName(), dam.DB, dam.Instance)
+	err = syncSchema(dam.TableName, dam.DB, dam.Instance)
 	if err != nil {
 		log.Error("Error in Synch Database: ", err)
 		return err
@@ -61,7 +60,8 @@ func addTable(tablename string, db *sqlx.DB, instance interface{}) error {
 	}
 
 	strQ = TrimSuffix(strQ, ",") + " ) "
-	log.Info("create table query: ", strQ)
+	log.Infof("creating table: %s ", tablename)
+	// log.Info("create table query: ", strQ)
 	_, err := db.Exec(strQ)
 	return err
 }

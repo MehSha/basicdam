@@ -8,16 +8,30 @@ import (
 )
 
 type BasicDAM struct {
-	DB       *sqlx.DB
-	Instance interface{}
+	DB        *sqlx.DB
+	Instance  interface{}
+	TableName string
 }
 
-func (dam *BasicDAM) TableName() string {
+func NewDAM(instance interface{}, db *sqlx.DB) *BasicDAM {
+	return &BasicDAM{
+		Instance:  instance,
+		DB:        db,
+		TableName: getTableName(instance),
+	}
+}
+
+func getTableName(instance interface{}) string {
 	tblName := ""
-	if t := reflect.TypeOf(dam.Instance); t.Kind() == reflect.Ptr {
+	if t := reflect.TypeOf(instance); t.Kind() == reflect.Ptr {
 		tblName = t.Elem().Name()
 	} else {
 		tblName = t.Name()
 	}
-	return strings.ToLower(tblName)
+	return strings.ToLower(tblName) + "s"
+}
+
+func (dam *BasicDAM) Delete(id int) error {
+	_, err := dam.DB.Exec("delete from "+dam.TableName+" where id=$1", id)
+	return err
 }
