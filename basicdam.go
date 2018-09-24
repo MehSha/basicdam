@@ -2,6 +2,7 @@ package basicdam
 
 import (
 	"reflect"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -12,9 +13,11 @@ type BasicDAM struct {
 }
 
 func (dam *BasicDAM) TableName() string {
+	tblName := ""
 	if t := reflect.TypeOf(dam.Instance); t.Kind() == reflect.Ptr {
-		return t.Elem().Name()
+		tblName = t.Elem().Name()
 	} else {
-		return t.Name()
+		tblName = t.Name()
 	}
+	return strings.ToLower(tblName)
 }
