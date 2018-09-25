@@ -2,6 +2,7 @@ package basicdam
 
 import (
 	"reflect"
+	"strings"
 )
 
 func getFieldType(val interface{}, name string) string {
@@ -27,4 +28,21 @@ func getFieldType(val interface{}, name string) string {
 	}
 	// log.Infof("examining field:%s, Kind: %s, dbtype:%s, type: %s", name, kind, dbtype, typeOfField)
 	return typeOfField
+}
+
+func getFieldsByTag(val interface{}, tag, prop string) []string {
+	arrFields := []string{}
+	rval := reflect.ValueOf(val)
+	if rval.Kind() == reflect.Ptr {
+		rval = rval.Elem()
+	}
+
+	for i := 0; i < rval.NumField(); i++ {
+		typeField := rval.Type().Field(i)
+
+		if strings.Contains(typeField.Tag.Get(tag), prop) {
+			arrFields = append(arrFields, typeField.Name)
+		}
+	}
+	return arrFields
 }
