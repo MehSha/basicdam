@@ -3,6 +3,8 @@ package basicdam
 import (
 	"reflect"
 	"strconv"
+
+	log "github.com/Sirupsen/logrus"
 )
 
 func (dam *BasicDAM) Insert(obj interface{}) (int, error) {
@@ -28,7 +30,7 @@ func (dam *BasicDAM) Insert(obj interface{}) (int, error) {
 	}
 
 	query := " insert into " + dam.TableName + "(" + TrimSuffix(strKeys, ",") + ") values(" + TrimSuffix(strParams, ",") + ") RETURNING id;"
-	// log.Info("query for inserting object is", query)
+	log.Info("query for inserting object is", query)
 	var id int
 	err := dam.DB.QueryRow(query, values...).Scan(&id)
 	return id, err

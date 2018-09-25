@@ -32,6 +32,6 @@ func getTableName(instance interface{}) string {
 }
 
 func (dam *BasicDAM) Delete(id int) error {
-	_, err := dam.DB.Exec("delete from "+dam.TableName+" where id=$1", id)
+	err := CatchExecErr(dam.DB.Exec("delete from "+dam.TableName+" where id=$1", id))
 	return err
 }
