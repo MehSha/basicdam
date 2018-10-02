@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"strconv"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 )
 
 func (dam *BasicDAM) Insert(obj interface{}) (int, error) {
