@@ -1,8 +1,13 @@
 package basicdam
 
 import (
+	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
+
+	"github.com/pkg/errors"
+	"github.com/tidwall/gjson"
 )
 
 func (dam *BasicDAM) Insert(obj interface{}) (int, error) {
@@ -33,6 +38,40 @@ func (dam *BasicDAM) Insert(obj interface{}) (int, error) {
 	return id, err
 }
 
+func (dam *BasicDAM) ValidateUpdate(obj interface{}, json string) error {
+	rval := reflect.ValueOf(obj)
+	if rval.Kind() == reflect.Ptr {
+		rval = rval.Elem()
+	}
+	objType := rval.Type()
+	for i := 0; i < rval.NumField(); i++ {
+		typeField := objType.Field(i)
+
+		jsonName := typeField.Name
+		if jsonTag := typeField.Tag.Get("json"); jsonTag != "" {
+			jsonName = jsonTag
+		}
+		inpVal := gjson.Get(json, jsonName)
+		inpEmpty := inpVal.Raw == ""
+		// log.Printf("checking field: %s, provided value: %s, empty?:%t ", typeField.Name, inpVal, inpEmpty)
+
+		props := typeField.Tag.Get("props")
+
+		if !inpEmpty {
+			//something is provided
+			if !strings.Contains(props, "editable") {
+				return errors.Wrap(ErrInvalid, fmt.Sprintf("field: %s is not editable", typeField.Name))
+			}
+		} else {
+			//provided data is Null
+			if strings.Contains(props, "editable") && strings.Contains(props, "notNull") {
+				return errors.Wrap(ErrInvalid, fmt.Sprintf("field: %s can not be empty/zero", typeField.Name))
+			}
+		} //end of field logic
+	}
+	return nil
+}
+
 func (dam *BasicDAM) Update(id int, obj interface{}) error {
 	columns := getFieldsByTag(dam.Instance, "props", "editable")
 	// log.Info("here is the editable columns:%+v", columns)
@@ -60,6 +99,77 @@ func (dam *BasicDAM) Update(id int, obj interface{}) error {
 	strQ += " where id=" + "$" + strconv.Itoa(counter) + ";"
 
 	// log.Infof("update query is...%s, %+v", strQ, values)
+
+	_, err := dam.DB.Exec(strQ, values...)
+	return err
+}
+
+func (dam *BasicDAM) ValidatePatch(obj interface{}, json string) error {
+	rval := reflect.ValueOf(obj)
+	if rval.Kind() == reflect.Ptr {
+		rval = rval.Elem()
+	}
+	objType := rval.Type()
+	for i := 0; i < rval.NumField(); i++ {
+		typeField := objType.Field(i)
+
+		jsonName := typeField.Name
+		if jsonTag := typeField.Tag.Get("json"); jsonTag != "" {
+			jsonName = jsonTag
+		}
+		inpVal := gjson.Get(json, jsonName)
+		inpEmpty := inpVal.Raw == ""
+		// log.Printf("checking field: %s, provided value: %s, empty?:%t ", typeField.Name, inpVal, inpEmpty)
+
+		props := typeField.Tag.Get("props")
+
+		if !inpEmpty {
+			//something is provided
+			if !strings.Contains(props, "editable") {
+				return errors.Wrap(ErrInvalid, fmt.Sprintf("field: %s is not editable", typeField.Name))
+			}
+		}
+	}
+	return nil
+}
+
+func (dam *BasicDAM) Patch(id int, obj interface{}, json string) error {
+	rval := reflect.ValueOf(obj)
+	if rval.Kind() == reflect.Ptr {
+		rval = rval.Elem()
+	}
+	updateQuery := ""
+	counter := 1
+	values := make([]interface{}, 0)
+	rtype := rval.Type()
+	for i := 0; i < rtype.NumField(); i++ {
+		typeField := rtype.Field(i)
+		dbtag := typeField.Tag.Get("db")
+		if dbtag == "-" {
+			continue
+		}
+
+		//check field availability in provided object
+		jsonName := typeField.Name
+		if jsonTag := typeField.Tag.Get("json"); jsonTag != "" {
+			jsonName = jsonTag
+		}
+		inpVal := gjson.Get(json, jsonName)
+		if inpVal.Raw == "" {
+			//filed is not provded to get updated
+			continue
+		}
+
+		updateQuery = updateQuery + getPgName(typeField.Name, dbtag) + "=" + "$" + strconv.Itoa(counter) + ","
+		values = append(values, rval.FieldByName(typeField.Name).Interface())
+		counter++
+	}
+	values = append(values, id)
+
+	strQ := " update " + dam.TableName + " set " + TrimSuffix(updateQuery, ",")
+	strQ += " where id=" + "$" + strconv.Itoa(counter) + ";"
+
+	// log.Infof("patch query is...%s, %+v", strQ, values)
 
 	_, err := dam.DB.Exec(strQ, values...)
 	return err
