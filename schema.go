@@ -3,8 +3,6 @@ package basicdam
 import (
 	"database/sql"
 	"errors"
-	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
@@ -14,12 +12,14 @@ import (
 //TODO support array filedName
 func (dam *BasicDAM) SyncDB() error {
 	var err error
-	err = addTable(dam.TableName, dam.DB, dam.Instance)
+	ParsedObj := parseObjectData(dam.Instance)
+	log.Infof("parsed object data is: %+v", ParsedObj)
+	err = addTable(dam.TableName, dam.DB, ParsedObj)
 	if err != nil {
 		log.Error("Error in Creating Database Table: ", err)
 		return err
 	}
-	err = syncSchema(dam.TableName, dam.DB, dam.Instance)
+	err = syncSchema(dam.TableName, dam.DB, ParsedObj)
 	if err != nil {
 		log.Error("Error in Synch Database: ", err)
 		return err
@@ -29,42 +29,26 @@ func (dam *BasicDAM) SyncDB() error {
 }
 
 // adds table if not exists
-func addTable(tablename string, db *sqlx.DB, instance interface{}) error {
-	rval := reflect.ValueOf(instance)
-	if rval.Kind() == reflect.Ptr {
-		rval = rval.Elem()
-	}
+func addTable(tablename string, db *sqlx.DB, fields parsedData) error {
 	var strQ string
 	strQ = " CREATE TABLE IF NOT EXISTS " + tablename + " ( "
-
-	for i := 0; i < rval.NumField(); i++ {
-		typeField := rval.Type().Field(i)
-		dbtag := typeField.Tag.Get("db")
-		if dbtag == "-" {
+	for _, fData := range fields {
+		if fData.PGName == "-" {
 			continue
 		}
-
-		typ := goType2Pg(getFieldType(instance, typeField.Name))
-		if typ == "" {
-			return errors.New(fmt.Sprintf(
-				"type of field: %s can not be inferred. if it is a struct please add dbtype tag", typeField.Name))
-		}
-		//log.Infof("field info, name:%s, type: %s, pgtype:%s", typeField.Name, typeOfField, typ)
-		fieldName := getPgName(typeField.Name, dbtag)
-		if typeField.Name == "ID" {
-			strQ = strQ + " " + fieldName + " SERIAL PRIMARY KEY " + ","
+		if fData.PGName == "id" {
+			strQ = strQ + " " + fData.PGName + " SERIAL PRIMARY KEY " + ","
 		} else {
-			strQ = strQ + " " + fieldName + " " + typ + ","
+			strQ = strQ + " " + fData.PGName + " " + fData.PGType + ","
 		}
-
 	}
-
 	strQ = TrimSuffix(strQ, ",") + " ) "
-	log.Infof("creating table: %s ", tablename)
+	// log.Infof("creating table: %s query: %s", tablename, strQ)
 	// log.Info("create table query: ", strQ)
 	_, err := db.Exec(strQ)
 	return err
 }
+
 func getPgName(name, dbtag string) string {
 	if dbtag != "" {
 		return dbtag
@@ -78,34 +62,29 @@ type dbColumn struct {
 	Data_Type   string
 }
 
-func syncSchema(tableName string, db *sqlx.DB, instance interface{}) error {
-	ival := reflect.ValueOf(instance)
-	if ival.Kind() == reflect.Ptr {
-		ival = ival.Elem()
+func findFieldByPGName(fields parsedData, pgName string) (fieldData, bool) {
+	for _, fData := range fields {
+		if fData.PGName == pgName {
+			return fData, true
+		}
 	}
-
-	//this map checks if the field exists on pg table or not
-	structFields := make(map[string]string)
-	for j := 0; j < ival.NumField(); j++ {
-		typeField := ival.Type().Field(j)
-		dbtag := typeField.Tag.Get("db")
-		if dbtag == "-" {
+	return fieldData{}, false
+}
+func syncSchema(tableName string, db *sqlx.DB, fields parsedData) error {
+	// add missing fields
+	for _, fData := range fields {
+		if fData.PGName == "-" {
 			continue
 		}
-		filedName := getPgName(typeField.Name, dbtag)
 		//check if the field exists in db or not
-		exists, err := checkPgColumn(tableName, db, filedName)
+		exists, err := checkPgColumn(tableName, db, fData.PGName)
 		if err != nil {
 			return errors.New("can not check for existance of column, " + err.Error())
 		}
-
-		typ := goType2Pg(getFieldType(instance, typeField.Name))
-		//we keep track of which filed must be present in db and of which data type
-		structFields[filedName] = typ
 		//if it is not in db we should create the column
 		if !exists {
-			log.Infof("adding field: %s to table %s", filedName, tableName)
-			err := addPostgresColumn(tableName, db, filedName, typ)
+			log.Infof("adding field: %s to table %s", fData.PGName, tableName)
+			err := addPostgresColumn(tableName, db, fData.PGName, fData.PGType)
 			if err != nil {
 				return errors.New("can not add column to table: " + err.Error())
 			}
@@ -120,7 +99,8 @@ func syncSchema(tableName string, db *sqlx.DB, instance interface{}) error {
 	}
 	for k := 0; k < len(dbcolumns); k++ {
 		//drop database column if don't exist in struct
-		desiredtype, shouldExist := structFields[dbcolumns[k].Column_Name]
+		objDat, shouldExist := findFieldByPGName(fields, dbcolumns[k].Column_Name)
+		desiredtype := objDat.PGType
 		if !shouldExist {
 			log.Infof("dropping field: %s from table %s", dbcolumns[k].Column_Name, tableName)
 			err := dropPostgresColumn(tableName, db, dbcolumns[k].Column_Name)
@@ -218,11 +198,4 @@ func getDefaultPgValue(pgtype string) string {
 		defaultVal = "'0001-01-01 03:25:44+03:25:44'"
 	}
 	return defaultVal
-}
-
-func TrimSuffix(s, suffix string) string {
-	if strings.HasSuffix(s, suffix) {
-		s = s[:len(s)-len(suffix)]
-	}
-	return s
 }

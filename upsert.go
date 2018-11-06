@@ -2,70 +2,55 @@ package basicdam
 
 import (
 	"fmt"
-	"reflect"
 	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 )
 
 func (dam *BasicDAM) Insert(obj interface{}) (int, error) {
-	rval := reflect.ValueOf(obj)
-	if rval.Kind() == reflect.Ptr {
-		rval = rval.Elem()
-	}
+	counter := 1
 	var strKeys, strParams string
 	values := make([]interface{}, 0)
-
-	counter := 1
-
-	for i := 0; i < rval.NumField(); i++ {
-		field := rval.Type().Field(i)
-		dbtag := field.Tag.Get("db")
-		if dbtag == "-" || field.Name == "ID" {
+	fieldValues := parseObjectData(obj)
+	for _, fData := range fieldValues {
+		if fData.PGName == "id" || fData.PGName == "-" {
 			continue
 		}
-		strKeys = strKeys + getPgName(field.Name, dbtag) + ","
-		values = append(values, rval.Field(i).Interface())
+		strKeys = strKeys + fData.PGName + ","
+		values = append(values, fData.Value)
 		strParams = strParams + "$" + strconv.Itoa(counter) + ","
 		counter++
 	}
 
 	query := " insert into " + dam.TableName + "(" + TrimSuffix(strKeys, ",") + ") values(" + TrimSuffix(strParams, ",") + ") RETURNING id;"
+	log.Infof("insert query: %s, %+v", query, values)
 	var id int
 	err := dam.DB.QueryRow(query, values...).Scan(&id)
 	return id, err
 }
 
 func (dam *BasicDAM) ValidateUpdate(obj interface{}, json string) error {
-	rval := reflect.ValueOf(obj)
-	if rval.Kind() == reflect.Ptr {
-		rval = rval.Elem()
-	}
-	objType := rval.Type()
-	for i := 0; i < rval.NumField(); i++ {
-		typeField := objType.Field(i)
+	fields := parseObjectData(obj)
+	for _, fData := range fields {
 
-		jsonName := typeField.Name
-		if jsonTag := typeField.Tag.Get("json"); jsonTag != "" {
-			jsonName = jsonTag
-		}
-		inpVal := gjson.Get(json, jsonName)
+		inpVal := gjson.Get(json, fData.JsonName)
 		inpEmpty := inpVal.Raw == ""
 		// log.Printf("checking field: %s, provided value: %s, empty?:%t ", typeField.Name, inpVal, inpEmpty)
 
-		props := typeField.Tag.Get("props")
+		props := fData.FieldType.Tag.Get("props")
 
 		if !inpEmpty {
 			//something is provided
 			if !strings.Contains(props, "editable") {
-				return errors.Wrap(ErrInvalid, fmt.Sprintf("field: %s is not editable", typeField.Name))
+				return errors.Wrap(ErrInvalid, fmt.Sprintf("field: %s is not editable", fData.JsonName))
 			}
 		} else {
 			//provided data is Null
 			if strings.Contains(props, "editable") && strings.Contains(props, "notNull") {
-				return errors.Wrap(ErrInvalid, fmt.Sprintf("field: %s can not be empty/zero", typeField.Name))
+				return errors.Wrap(ErrInvalid, fmt.Sprintf("field: %s can not be empty/zero", fData.JsonName))
 			}
 		} //end of field logic
 	}
@@ -73,24 +58,19 @@ func (dam *BasicDAM) ValidateUpdate(obj interface{}, json string) error {
 }
 
 func (dam *BasicDAM) Update(id int, obj interface{}) error {
-	columns := getFieldsByTag(dam.Instance, "props", "editable")
-	// log.Info("here is the editable columns:%+v", columns)
-	rval := reflect.ValueOf(obj)
-	if rval.Kind() == reflect.Ptr {
-		rval = rval.Elem()
-	}
 	updateQuery := ""
 	counter := 1
 	values := make([]interface{}, 0)
-	for i := 0; i < len(columns); i++ {
-		typeField, _ := rval.Type().FieldByName(columns[i])
-		dbtag := typeField.Tag.Get("db")
-		if dbtag == "-" {
+
+	fields := parseObjectData(obj)
+	for _, fData := range fields {
+		props := fData.FieldType.Tag.Get("props")
+		if fData.PGName == "-" || !strings.Contains(props, "editable") {
 			continue
 		}
 
-		updateQuery = updateQuery + getPgName(typeField.Name, dbtag) + "=" + "$" + strconv.Itoa(counter) + ","
-		values = append(values, rval.FieldByName(columns[i]).Interface())
+		updateQuery = updateQuery + fData.PGName + "=" + "$" + strconv.Itoa(counter) + ","
+		values = append(values, fData.Value)
 		counter++
 	}
 	values = append(values, id)
@@ -105,28 +85,18 @@ func (dam *BasicDAM) Update(id int, obj interface{}) error {
 }
 
 func (dam *BasicDAM) ValidatePatch(obj interface{}, json string) error {
-	rval := reflect.ValueOf(obj)
-	if rval.Kind() == reflect.Ptr {
-		rval = rval.Elem()
-	}
-	objType := rval.Type()
-	for i := 0; i < rval.NumField(); i++ {
-		typeField := objType.Field(i)
-
-		jsonName := typeField.Name
-		if jsonTag := typeField.Tag.Get("json"); jsonTag != "" {
-			jsonName = jsonTag
-		}
-		inpVal := gjson.Get(json, jsonName)
+	fields := parseObjectData(obj)
+	for _, fData := range fields {
+		inpVal := gjson.Get(json, fData.JsonName)
 		inpEmpty := inpVal.Raw == ""
 		// log.Printf("checking field: %s, provided value: %s, empty?:%t ", typeField.Name, inpVal, inpEmpty)
 
-		props := typeField.Tag.Get("props")
+		props := fData.FieldType.Tag.Get("props")
 
 		if !inpEmpty {
 			//something is provided
 			if !strings.Contains(props, "editable") {
-				return errors.Wrap(ErrInvalid, fmt.Sprintf("field: %s is not editable", typeField.Name))
+				return errors.Wrap(ErrInvalid, fmt.Sprintf("field: %s is not editable", fData.JsonName))
 			}
 		}
 	}
@@ -134,34 +104,22 @@ func (dam *BasicDAM) ValidatePatch(obj interface{}, json string) error {
 }
 
 func (dam *BasicDAM) Patch(id int, obj interface{}, json string) error {
-	rval := reflect.ValueOf(obj)
-	if rval.Kind() == reflect.Ptr {
-		rval = rval.Elem()
-	}
 	updateQuery := ""
 	counter := 1
 	values := make([]interface{}, 0)
-	rtype := rval.Type()
-	for i := 0; i < rtype.NumField(); i++ {
-		typeField := rtype.Field(i)
-		dbtag := typeField.Tag.Get("db")
-		if dbtag == "-" {
+	fields := parseObjectData(obj)
+	for _, fData := range fields {
+		log.Infof("check fdata, %s, %s", fData.PGName, fData.JsonName)
+		if fData.PGName == "-" {
 			continue
 		}
-
-		//check field availability in provided object
-		jsonName := typeField.Name
-		if jsonTag := typeField.Tag.Get("json"); jsonTag != "" {
-			jsonName = jsonTag
-		}
-		inpVal := gjson.Get(json, jsonName)
+		inpVal := gjson.Get(json, fData.JsonName)
 		if inpVal.Raw == "" {
 			//filed is not provded to get updated
 			continue
 		}
-
-		updateQuery = updateQuery + getPgName(typeField.Name, dbtag) + "=" + "$" + strconv.Itoa(counter) + ","
-		values = append(values, rval.FieldByName(typeField.Name).Interface())
+		updateQuery = updateQuery + fData.PGName + "=" + "$" + strconv.Itoa(counter) + ","
+		values = append(values, fData.Value)
 		counter++
 	}
 	values = append(values, id)
@@ -169,7 +127,7 @@ func (dam *BasicDAM) Patch(id int, obj interface{}, json string) error {
 	strQ := " update " + dam.TableName + " set " + TrimSuffix(updateQuery, ",")
 	strQ += " where id=" + "$" + strconv.Itoa(counter) + ";"
 
-	// log.Infof("patch query is...%s, %+v", strQ, values)
+	log.Infof("patch query is...%s, %+v", strQ, values)
 
 	_, err := dam.DB.Exec(strQ, values...)
 	return err
