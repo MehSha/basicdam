@@ -13,8 +13,8 @@ import (
 func (dam *BasicDAM) SyncDB() error {
 	var err error
 	ParsedObj := parseObjectData(dam.Instance)
-	log.Infof("parsed object data is: %+v", ParsedObj)
-	err = addTable(dam.TableName, dam.DB, ParsedObj)
+	// log.Infof("parsed object data is: %+v", ParsedObj)
+	err = addTable(dam.Instance, dam.TableName, dam.DB, ParsedObj)
 	if err != nil {
 		log.Error("Error in Creating Database Table: ", err)
 		return err
@@ -29,22 +29,35 @@ func (dam *BasicDAM) SyncDB() error {
 }
 
 // adds table if not exists
-func addTable(tablename string, db *sqlx.DB, fields parsedData) error {
+func addTable(obj interface{}, tablename string, db *sqlx.DB, fields parsedData) error {
+	//first install extensions...
 	var strQ string
-	strQ = " CREATE TABLE IF NOT EXISTS " + tablename + " ( "
+	extensions := getRequiredExtensions(obj)
+	for _, ext := range extensions {
+		strQ += "CREATE EXTENSION IF NOT EXISTS \"" + ext + "\";"
+	}
+	strQ += " CREATE TABLE IF NOT EXISTS " + tablename + " ( "
 	for _, fData := range fields {
 		if fData.PGName == "-" {
 			continue
 		}
-		if fData.PGName == "id" {
-			strQ = strQ + " " + fData.PGName + " SERIAL PRIMARY KEY " + ","
-		} else {
-			strQ = strQ + " " + fData.PGName + " " + fData.PGType + ","
+		//check primary key
+		if fData.PrimaryKey {
+			if fData.PGType == "integer" {
+				strQ = strQ + " " + fData.PGName + " SERIAL PRIMARY KEY " + ","
+			} else if fData.PGType == "uuid" {
+				strQ = strQ + " " + fData.PGName + " uuid DEFAULT uuid_generate_v4() PRIMARY KEY,"
+			} else {
+				strQ = strQ + " " + fData.PGName + " " + fData.PGType + " PRIMARY KEY,"
+			}
+			continue
 		}
+		//ordinary column
+		strQ = strQ + " " + fData.PGName + " " + fData.PGType + ","
 	}
 	strQ = TrimSuffix(strQ, ",") + " ) "
 	// log.Infof("creating table: %s query: %s", tablename, strQ)
-	// log.Info("create table query: ", strQ)
+	log.Info("create table query: ", strQ)
 	_, err := db.Exec(strQ)
 	return err
 }
@@ -83,7 +96,7 @@ func syncSchema(tableName string, db *sqlx.DB, fields parsedData) error {
 		}
 		//if it is not in db we should create the column
 		if !exists {
-			log.Infof("adding field: %s to table %s", fData.PGName, tableName)
+			log.Infof("adding field: %s of type: %s to table %s", fData.PGName, fData.PGType, tableName)
 			err := addPostgresColumn(tableName, db, fData.PGName, fData.PGType)
 			if err != nil {
 				return errors.New("can not add column to table: " + err.Error())
@@ -156,6 +169,7 @@ func addPostgresColumn(tableName string, db *sqlx.DB, field, dbtype string) erro
 	//withut default value, older rows would be set to null which results in error when scanning
 	defaultVal := getDefaultPgValue(dbtype)
 	strQ := "alter table " + tableName + " add column " + field + " " + dbtype + " default " + defaultVal
+	log.Println("query for adding column ", strQ)
 	_, err := db.Exec(strQ)
 	return err
 }
@@ -166,22 +180,20 @@ func dropPostgresColumn(tableName string, db *sqlx.DB, field string) error {
 }
 
 func goType2Pg(typeOfField string) string {
-	var pgtyp string
 	if typeOfField == "string" {
-		pgtyp = "text"
+		return "text"
 	} else if typeOfField == "int" {
-		pgtyp = "integer"
+		return "integer"
 	} else if typeOfField == "bool" {
-		pgtyp = "boolean"
-	} else if typeOfField == "jsonb" {
-		pgtyp = "jsonb"
+		return "boolean"
 	} else if typeOfField == "time" {
-		pgtyp = "timestamp with time zone"
+		return "timestamp with time zone"
 	} else if typeOfField == "float32" || typeOfField == "float64" {
-		pgtyp = "real"
+		return "real"
+	} else {
+		//return same as input
+		return typeOfField
 	}
-
-	return pgtyp
 }
 
 func getDefaultPgValue(pgtype string) string {
@@ -196,6 +208,8 @@ func getDefaultPgValue(pgtype string) string {
 		defaultVal = "'{}'"
 	} else if pgtype == "timestamp with time zone" {
 		defaultVal = "'0001-01-01 03:25:44+03:25:44'"
+	} else if pgtype == "uuid" {
+		defaultVal = "uuid_generate_v4()"
 	}
 	return defaultVal
 }

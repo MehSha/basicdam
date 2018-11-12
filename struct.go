@@ -6,7 +6,6 @@ import (
 )
 
 func getFieldType(val interface{}, name string) string {
-
 	tval := reflect.TypeOf(val)
 	if tval.Kind() == reflect.Ptr {
 		tval = tval.Elem()
@@ -18,21 +17,10 @@ func getFieldType(val interface{}, name string) string {
 		return ""
 	}
 	dbtype := typeField.Tag.Get("dbtype")
-	kind := typeField.Type.Kind().String()
-	// log.Infof("field kind is: %s for %s", kind, name)
-
-	//if the field is a pointer or an struct, there should be dbtype tag to be used
-	if kind != "struct" && kind != "ptr" {
-		return kind
-	}
-	//this is struct or pointer
 	if dbtype != "" {
 		return dbtype
 	}
-	//struct or pointer that has no dbtye tag
-
-	// log.Infof("examining field:%s, Kind: %s, dbtype:%s, type: %s", name, kind, dbtype, typeOfField)
-	return "embedded"
+	return typeField.Type.Kind().String()
 }
 
 func getFieldsByTag(val interface{}, tag, prop string) []string {
@@ -51,6 +39,23 @@ func getFieldsByTag(val interface{}, tag, prop string) []string {
 	}
 	return arrFields
 }
+func getRequiredExtensions(obj interface{}) []string {
+	extensions := []string{}
+	rval := reflect.ValueOf(obj)
+	if rval.Kind() == reflect.Ptr {
+		rval = rval.Elem()
+	}
+
+	for i := 0; i < rval.NumField(); i++ {
+		typeField := rval.Type().Field(i)
+
+		requiredExtension := typeField.Tag.Get("dbextension")
+		if requiredExtension != "" {
+			extensions = append(extensions, requiredExtension)
+		}
+	}
+	return extensions
+}
 func TrimSuffix(s, suffix string) string {
 	if strings.HasSuffix(s, suffix) {
 		s = s[:len(s)-len(suffix)]
@@ -59,12 +64,13 @@ func TrimSuffix(s, suffix string) string {
 }
 
 type fieldData struct {
-	Name      string
-	Value     interface{}
-	JsonName  string
-	PGType    string
-	PGName    string
-	FieldType reflect.StructField
+	Name       string
+	Value      interface{}
+	JsonName   string
+	PGType     string
+	PGName     string
+	PrimaryKey bool
+	FieldType  reflect.StructField
 }
 
 type parsedData []fieldData
@@ -78,7 +84,7 @@ func parseObjectData(instance interface{}) parsedData {
 	for i := 0; i < rval.NumField(); i++ {
 		typeField := rval.Type().Field(i)
 		goType := getFieldType(instance, typeField.Name)
-		if goType == "embedded" {
+		if goType == "struct" {
 			subMap := parseObjectData(rval.FieldByName(typeField.Name).Interface())
 			//merge 2 maps
 			for _, v := range subMap {
@@ -88,6 +94,9 @@ func parseObjectData(instance interface{}) parsedData {
 			data := &fieldData{}
 			data.Name = typeField.Name
 			data.PGName = getPgName(typeField.Name, typeField.Tag.Get("db"))
+			if strings.Contains(typeField.Tag.Get("props"), "primaryKey") {
+				data.PrimaryKey = true
+			}
 			data.PGType = goType2Pg(goType)
 			data.Value = rval.FieldByName(typeField.Name).Interface()
 			data.FieldType = typeField

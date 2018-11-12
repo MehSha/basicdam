@@ -10,13 +10,13 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func (dam *BasicDAM) Insert(obj interface{}) (int, error) {
+func (dam *BasicDAM) Insert(obj interface{}) (string, error) {
 	counter := 1
 	var strKeys, strParams string
 	values := make([]interface{}, 0)
 	fieldValues := parseObjectData(obj)
 	for _, fData := range fieldValues {
-		if fData.PGName == "id" || fData.PGName == "-" {
+		if fData.PrimaryKey || fData.PGName == "-" {
 			continue
 		}
 		strKeys = strKeys + fData.PGName + ","
@@ -26,8 +26,8 @@ func (dam *BasicDAM) Insert(obj interface{}) (int, error) {
 	}
 
 	query := " insert into " + dam.TableName + "(" + TrimSuffix(strKeys, ",") + ") values(" + TrimSuffix(strParams, ",") + ") RETURNING id;"
-	log.Infof("insert query: %s, %+v", query, values)
-	var id int
+	// log.Infof("insert query: %s, %+v", query, values)
+	var id string
 	err := dam.DB.QueryRow(query, values...).Scan(&id)
 	return id, err
 }
@@ -57,7 +57,7 @@ func (dam *BasicDAM) ValidateUpdate(obj interface{}, json string) error {
 	return nil
 }
 
-func (dam *BasicDAM) Update(id int, obj interface{}) error {
+func (dam *BasicDAM) Update(id string, obj interface{}) error {
 	updateQuery := ""
 	counter := 1
 	values := make([]interface{}, 0)
@@ -103,7 +103,7 @@ func (dam *BasicDAM) ValidatePatch(obj interface{}, json string) error {
 	return nil
 }
 
-func (dam *BasicDAM) Patch(id int, obj interface{}, json string) error {
+func (dam *BasicDAM) Patch(id string, obj interface{}, json string) error {
 	updateQuery := ""
 	counter := 1
 	values := make([]interface{}, 0)
