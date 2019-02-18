@@ -1,4 +1,4 @@
-module github.com/mehsha/basicdam
+module github.com/MehSha/basicdam
 
 require (
 	github.com/go-sql-driver/mysql v1.4.0 // indirect
