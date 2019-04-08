@@ -26,7 +26,7 @@ func (dam *BasicDAM) Insert(obj interface{}) (string, error) {
 	}
 
 	query := " insert into " + dam.TableName + "(" + TrimSuffix(strKeys, ",") + ") values(" + TrimSuffix(strParams, ",") + ") RETURNING id;"
-	// log.Infof("insert query: %s, %+v", query, values)
+	log.Debugf("insert query: %s, %+v\n", query, values)
 	var id string
 	err := dam.DB.QueryRow(query, values...).Scan(&id)
 	return id, err
@@ -38,8 +38,6 @@ func (dam *BasicDAM) ValidateUpdate(obj interface{}, json string) error {
 
 		inpVal := gjson.Get(json, fData.JsonName)
 		inpEmpty := inpVal.Raw == ""
-		// log.Printf("checking field: %s, provided value: %s, empty?:%t ", typeField.Name, inpVal, inpEmpty)
-
 		props := fData.FieldType.Tag.Get("props")
 
 		if !inpEmpty {
@@ -109,7 +107,7 @@ func (dam *BasicDAM) Patch(id string, obj interface{}, json string) error {
 	values := make([]interface{}, 0)
 	fields := parseObjectData(obj)
 	for _, fData := range fields {
-		log.Infof("check fdata, %s, %s", fData.PGName, fData.JsonName)
+		log.Debugf("check fdata, %s, %s\n", fData.PGName, fData.JsonName)
 		if fData.PGName == "-" {
 			continue
 		}
@@ -127,7 +125,7 @@ func (dam *BasicDAM) Patch(id string, obj interface{}, json string) error {
 	strQ := " update " + dam.TableName + " set " + TrimSuffix(updateQuery, ",")
 	strQ += " where id=" + "$" + strconv.Itoa(counter) + ";"
 
-	log.Infof("patch query is...%s, %+v", strQ, values)
+	log.Debugf("patch query is...%s, %+v\n", strQ, values)
 
 	_, err := dam.DB.Exec(strQ, values...)
 	return err

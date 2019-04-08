@@ -3,11 +3,29 @@ package basicdam
 import (
 	"database/sql"
 	"errors"
+	"os"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
 	log "github.com/sirupsen/logrus"
 )
+
+func init() {
+	loglevel := os.Getenv("LOGLEVEL")
+	switch loglevel {
+	case "debug":
+		log.SetLevel(log.DebugLevel)
+	case "info":
+		log.SetLevel(log.InfoLevel)
+	case "warning":
+		log.SetLevel(log.WarnLevel)
+	case "fatal":
+		log.SetLevel(log.FatalLevel)
+	default:
+		log.SetLevel(log.ErrorLevel)
+	}
+
+}
 
 //TODO support array filedName
 func (dam *BasicDAM) SyncDB() error {
@@ -57,7 +75,7 @@ func addTable(obj interface{}, tablename string, db *sqlx.DB, fields parsedData)
 	}
 	strQ = TrimSuffix(strQ, ",") + " ) "
 	// log.Infof("creating table: %s query: %s", tablename, strQ)
-	log.Info("create table query: ", strQ)
+	log.Debugln("create table query: ", strQ)
 	_, err := db.Exec(strQ)
 	return err
 }
@@ -96,7 +114,7 @@ func syncSchema(tableName string, db *sqlx.DB, fields parsedData) error {
 		}
 		//if it is not in db we should create the column
 		if !exists {
-			log.Infof("adding field: %s of type: %s to table %s", fData.PGName, fData.PGType, tableName)
+			log.Infof("adding field: %s of type: %s to table %s\n", fData.PGName, fData.PGType, tableName)
 			err := addPostgresColumn(tableName, db, fData.PGName, fData.PGType)
 			if err != nil {
 				return errors.New("can not add column to table: " + err.Error())
@@ -115,7 +133,7 @@ func syncSchema(tableName string, db *sqlx.DB, fields parsedData) error {
 		objDat, shouldExist := findFieldByPGName(fields, dbcolumns[k].Column_Name)
 		desiredtype := objDat.PGType
 		if !shouldExist {
-			log.Infof("dropping field: %s from table %s", dbcolumns[k].Column_Name, tableName)
+			log.Infof("dropping field: %s from table %s\n", dbcolumns[k].Column_Name, tableName)
 			err := dropPostgresColumn(tableName, db, dbcolumns[k].Column_Name)
 			if err != nil {
 				return errors.New("can not remove column from table: " + err.Error())
@@ -123,7 +141,7 @@ func syncSchema(tableName string, db *sqlx.DB, fields parsedData) error {
 		}
 		//if type changes, we need to handle it
 		if shouldExist && desiredtype != dbcolumns[k].Data_Type {
-			log.Infof("type changed in field: %s in table %s from %s to %s",
+			log.Infof("type changed in field: %s in table %s from %s to %s\n",
 				dbcolumns[k].Column_Name, tableName, dbcolumns[k].Data_Type, desiredtype)
 			err := dropAddPostgresColumn(tableName, db, dbcolumns[k].Column_Name, desiredtype)
 			if err != nil {
@@ -169,7 +187,7 @@ func addPostgresColumn(tableName string, db *sqlx.DB, field, dbtype string) erro
 	//withut default value, older rows would be set to null which results in error when scanning
 	defaultVal := getDefaultPgValue(dbtype)
 	strQ := "alter table " + tableName + " add column " + field + " " + dbtype + " default " + defaultVal
-	log.Println("query for adding column ", strQ)
+	log.Debugln("query for adding column ", strQ)
 	_, err := db.Exec(strQ)
 	return err
 }

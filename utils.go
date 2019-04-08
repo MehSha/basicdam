@@ -6,7 +6,6 @@ import (
 	"reflect"
 
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 )
 
@@ -29,7 +28,6 @@ func PatchJson(obj interface{}, rawJson string) (interface{}, error) {
 	if rval.Kind() == reflect.Ptr {
 
 		rval = rval.Elem()
-		log.Info("it is pointer, ", rval.Kind())
 	}
 	rtype := rval.Type()
 
